@@ -1,0 +1,58 @@
+name: Build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x86_64
+            os: ubuntu-24.04
+            artifact: linux-x86_64
+            gradle: ./gradlew --no-daemon fabric:build neoforge:build
+          - name: Windows x86_64
+            os: windows-2022
+            artifact: windows-x86_64
+            gradle: .\gradlew.bat --no-daemon fabric:build neoforge:build
+          - name: macOS x86_64
+            os: macos-13
+            artifact: macos-x86_64
+            gradle: ./gradlew --no-daemon fabric:build neoforge:build
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build
+        run: ${{ matrix.gradle }}
+
+      - name: Upload jars and native
+        uses: actions/upload-artifact@v4
+        with:
+          name: box3d-for-sable-${{ matrix.artifact }}
+          if-no-files-found: error
+          path: |
+            fabric/build/libs/*.jar
+            neoforge/build/libs/*.jar
+            common/build/generated/resources/box3dNatives/natives/sable_box3d/*

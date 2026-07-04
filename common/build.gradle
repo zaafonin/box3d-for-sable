@@ -1,0 +1,200 @@
+plugins {
+    id 'java-library'
+    id 'net.neoforged.moddev'
+}
+
+base {
+    archivesName = "${mod_id}-common-${minecraft_version}"
+}
+
+neoForge {
+    neoFormVersion = neo_form_version
+    parchment {
+        minecraftVersion = parchment_minecraft
+        mappingsVersion = parchment_version
+    }
+}
+
+def generatedNativesRoot = project.layout.buildDirectory.dir("generated/resources/box3dNatives")
+def nativesDir = generatedNativesRoot.map { it.dir("natives/sable_box3d") }
+def nativeSourceDir = file("src/main/native")
+def configuredBox3dSourceDir = findProperty("box3dSourceDir") ?: System.getenv("BOX3D_SOURCE_DIR")
+def bundledBox3dSourceDir = file("src/main/native/box3d")
+def box3dSourceDir = configuredBox3dSourceDir != null ? file(configuredBox3dSourceDir) : bundledBox3dSourceDir
+def detectedArch = System.getProperty("os.arch")
+def hostArch = detectedArch == "arm" || detectedArch.startsWith("aarch64") ? "aarch64" : "x86_64"
+def osName = System.getProperty("os.name").toLowerCase()
+def hostOsName = osName.contains("win") ? "windows" : (osName.contains("mac") || osName.contains("darwin") ? "macos" : "linux")
+def linuxGlibcCeiling = (findProperty("box3dMaxGlibc") ?: System.getenv("BOX3D_MAX_GLIBC") ?: "2.42").toString()
+def allowNewerLinuxAbi = (findProperty("box3dAllowNewerGlibc") ?: "false").toString().toBoolean()
+def strictCxxRuntime = (findProperty("box3dStrictCxxRuntime") ?: "false").toString().toBoolean()
+def staticCxxRuntime = (findProperty("box3dStaticCxxRuntime") ?: "false").toString().toBoolean()
+def cmakeGenerator = findProperty("box3dCmakeGenerator") ?: System.getenv("BOX3D_CMAKE_GENERATOR")
+def defaultJavaHomeForCmake = javaToolchains.launcherFor {
+    languageVersion = JavaLanguageVersion.of(java_version.toInteger())
+}.get().metadata.installationPath.asFile.absolutePath
+def javaHomeForCmake = file(findProperty("box3dJavaHome") ?: System.getenv("BOX3D_JAVA_HOME") ?: defaultJavaHomeForCmake)
+def cmakeBuildDir = project.layout.buildDirectory.dir("cmake/${hostOsName}-${hostArch}").get().asFile
+def cmakeOutDir = file("$cmakeBuildDir/out")
+def hostExt = hostOsName == "windows" ? "dll" : (hostOsName == "macos" ? "dylib" : "so")
+def hostLibPrefix = hostOsName == "windows" ? "" : "lib"
+def nativeNameForHost = "sable_box3d_${hostArch}_${hostOsName}.${hostExt}"
+def builtLibraryForHost = file("$cmakeOutDir/${hostLibPrefix}sable_box3d.${hostExt}")
+
+def normalizeCommand = { List command ->
+    command.collect { it.toString() }
+}
+
+def runProcess = { List command ->
+    def normalized = normalizeCommand(command)
+    def process = new ProcessBuilder(normalized)
+            .directory(project.projectDir)
+            .redirectErrorStream(true)
+            .start()
+    def output = process.inputStream.getText("UTF-8")
+    def exitCode = process.waitFor()
+    if (exitCode != 0) {
+        throw new GradleException("${normalized.join(" ")} failed with exit code ${exitCode}:\n${output}")
+    }
+    return output
+}
+
+def compareVersions = { String left, String right ->
+    def leftParts = left.tokenize('.').collect { it as int }
+    def rightParts = right.tokenize('.').collect { it as int }
+    def count = Math.max(leftParts.size(), rightParts.size())
+    for (int i = 0; i < count; i++) {
+        def leftValue = i < leftParts.size() ? leftParts[i] : 0
+        def rightValue = i < rightParts.size() ? rightParts[i] : 0
+        if (leftValue != rightValue) {
+            return leftValue <=> rightValue
+        }
+    }
+    return 0
+}
+
+tasks.register("configureBox3dNative", Exec) {
+    group = "box3d"
+    description = "Configures the host Box3D JNI native build."
+
+    inputs.dir(nativeSourceDir)
+    inputs.dir(box3dSourceDir)
+    outputs.dir(cmakeBuildDir)
+
+    doFirst {
+        if (!box3dSourceDir.exists()) {
+            throw new GradleException("Box3D source directory not found: ${box3dSourceDir}. Initialize submodules, or set -Pbox3dSourceDir=/path/to/box3d / BOX3D_SOURCE_DIR.")
+        }
+    }
+
+    def configureCommand = ["cmake"]
+    if (cmakeGenerator != null && !cmakeGenerator.toString().isBlank()) {
+        configureCommand.addAll(["-G", cmakeGenerator.toString()])
+    }
+    configureCommand.addAll([
+            "-S", nativeSourceDir.absolutePath,
+            "-B", cmakeBuildDir.absolutePath,
+            "-DCMAKE_BUILD_TYPE=RelWithDebInfo",
+            "-DBOX3D_SOURCE_DIR=${box3dSourceDir.absolutePath}",
+            "-DJAVA_HOME=${javaHomeForCmake.absolutePath}",
+            "-DBOX3D_STATIC_CXX_RUNTIME=${staticCxxRuntime ? "ON" : "OFF"}",
+            "-DCMAKE_ARCHIVE_OUTPUT_DIRECTORY=${cmakeOutDir.absolutePath}",
+            "-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=${cmakeOutDir.absolutePath}",
+            "-DCMAKE_RUNTIME_OUTPUT_DIRECTORY=${cmakeOutDir.absolutePath}",
+            "-DCMAKE_ARCHIVE_OUTPUT_DIRECTORY_RELWITHDEBINFO=${cmakeOutDir.absolutePath}",
+            "-DCMAKE_LIBRARY_OUTPUT_DIRECTORY_RELWITHDEBINFO=${cmakeOutDir.absolutePath}",
+            "-DCMAKE_RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO=${cmakeOutDir.absolutePath}"
+    ])
+
+    commandLine normalizeCommand(configureCommand)
+}
+
+tasks.register("buildBox3dNative", Exec) {
+    group = "box3d"
+    description = "Builds the host Box3D JNI native library."
+    dependsOn configureBox3dNative
+
+    inputs.dir(nativeSourceDir)
+    inputs.dir(box3dSourceDir)
+    outputs.file(builtLibraryForHost)
+
+    commandLine normalizeCommand(["cmake", "--build", cmakeBuildDir.absolutePath, "--config", "RelWithDebInfo", "--target", "sable_box3d"])
+}
+
+tasks.register("verifyBox3dNativeAbi") {
+    group = "verification"
+    description = "Verifies the Linux Box3D JNI native does not depend on a too-new glibc/libstdc++ ABI."
+    dependsOn buildBox3dNative
+
+    onlyIf { hostOsName == "linux" }
+
+    inputs.file(builtLibraryForHost)
+
+    doLast {
+        def versionText = runProcess(["readelf", "--version-info", builtLibraryForHost.absolutePath])
+        def glibcVersions = (versionText =~ /GLIBC_(\d+\.\d+(?:\.\d+)?)/).collect { it[1] }.unique()
+        def tooNew = glibcVersions.findAll { compareVersions(it, linuxGlibcCeiling) > 0 }.sort { a, b -> compareVersions(a, b) }
+
+        def dynamicText = runProcess(["readelf", "-d", builtLibraryForHost.absolutePath])
+        def dynamicCxxRuntimeLibs = []
+        if (dynamicText.contains("libstdc++.so")) {
+            dynamicCxxRuntimeLibs.add("libstdc++.so")
+        }
+        if (dynamicText.contains("libgcc_s.so")) {
+            dynamicCxxRuntimeLibs.add("libgcc_s.so")
+        }
+
+        if (!allowNewerLinuxAbi && !tooNew.isEmpty()) {
+            throw new GradleException("Box3D Linux native ABI is not distributable. Max allowed GLIBC is ${linuxGlibcCeiling}, found newer ${tooNew}. Build on an older Linux runner, lower/raise the ceiling with -Pbox3dMaxGlibc=<version>, or override only for local testing with -Pbox3dAllowNewerGlibc=true.")
+        }
+
+        if (strictCxxRuntime && !dynamicCxxRuntimeLibs.isEmpty()) {
+            throw new GradleException("Box3D Linux native dynamically depends on ${dynamicCxxRuntimeLibs}. Install a static C++ runtime in the build environment and use -Pbox3dStaticCxxRuntime=true, or disable strict runtime checking.")
+        }
+
+        if (!dynamicCxxRuntimeLibs.isEmpty()) {
+            logger.warn("Box3D Linux native dynamically depends on ${dynamicCxxRuntimeLibs}. This is allowed by default, but strict distribution builds can use -Pbox3dStrictCxxRuntime=true after enabling -Pbox3dStaticCxxRuntime=true.")
+        }
+    }
+}
+
+tasks.register("copyBox3dNative", Copy) {
+    group = "box3d"
+    description = "Copies the host Box3D JNI native into resources."
+    dependsOn verifyBox3dNativeAbi
+
+    into nativesDir
+    from(builtLibraryForHost) {
+        rename { nativeNameForHost }
+    }
+}
+
+tasks.register("buildBox3dNatives") {
+    group = "build"
+    description = "Builds and copies the host Box3D native library."
+    dependsOn copyBox3dNative
+}
+
+tasks.named("processResources") {
+    dependsOn copyBox3dNative
+    from(generatedNativesRoot)
+    inputs.property("version", project.version)
+    inputs.property("mod_id", mod_id)
+    filesMatching(["*.mixins.json"]) {
+        expand([
+                "mod_id": mod_id
+        ])
+    }
+}
+
+dependencies {
+    compileOnly "net.fabricmc:sponge-mixin:0.15.2+mixin.0.8.7"
+    compileOnly "fuzs.forgeconfigapiport:forgeconfigapiport-common-neoforgeapi:${forgeconfigapiport_version}"
+
+    compileOnly("dev.ryanhcode.sable:sable-neoforge-${minecraft_version}:${sable_version}") {
+        transitive = false
+    }
+    compileOnly("dev.ryanhcode.sable-companion:sable-companion-common-${minecraft_version}:${sable_companion_version}") {
+        transitive = false
+    }
+}

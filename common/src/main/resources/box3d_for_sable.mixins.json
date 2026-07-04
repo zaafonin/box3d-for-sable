@@ -1,0 +1,15 @@
+{
+  "required": false,
+  "package": "in.zaafon.box3d_for_sable.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "minVersion": "0.8",
+  "client": [
+    "DebugScreenOverlayMixin"
+  ],
+  "mixins": [
+    "SubLevelPhysicsSystemMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

@@ -1,0 +1,83 @@
+plugins {
+    id 'java-library'
+    id 'net.fabricmc.fabric-loom-remap'
+}
+
+base {
+    archivesName = "${mod_id}-fabric-${minecraft_version}"
+}
+
+sourceSets.main.java.srcDir project(":common").file("src/main/java")
+sourceSets.main.resources.srcDir project(":common").file("src/main/resources")
+
+dependencies {
+    minecraft "com.mojang:minecraft:${minecraft_version}"
+    mappings loom.layered {
+        officialMojangMappings()
+        parchment("org.parchmentmc.data:parchment-${parchment_minecraft}:${parchment_version}@zip")
+    }
+
+    modImplementation "net.fabricmc:fabric-loader:${fabric_loader_version}"
+    modCompileOnly("fuzs.forgeconfigapiport:forgeconfigapiport-fabric:${forgeconfigapiport_version}")
+
+    modCompileOnly("dev.ryanhcode.sable:sable-fabric-${minecraft_version}:${sable_version}") {
+        transitive = false
+    }
+    modCompileOnly("dev.ryanhcode.sable-companion:sable-companion-fabric-${minecraft_version}:${sable_companion_version}") {
+        transitive = false
+    }
+
+    compileOnly "net.fabricmc:sponge-mixin:0.15.2+mixin.0.8.7"
+}
+
+tasks.named("processResources") {
+    dependsOn project(":common").tasks.named("copyBox3dNative")
+    from(project(":common").layout.buildDirectory.dir("generated/resources/box3dNatives"))
+    inputs.properties([
+            "version": project.version,
+            "mod_id": mod_id,
+            "mod_name": mod_name,
+            "mod_author": mod_author,
+            "description": mod_description,
+            "license": license,
+            "issues": issues,
+            "minecraft_version": minecraft_version,
+            "fabric_loader_version": fabric_loader_version,
+            "forgeconfigapiport_version": forgeconfigapiport_version,
+            "java_version": java_version,
+            "sable_version": sable_version
+    ])
+    filesMatching(["fabric.mod.json", "*.mixins.json"]) {
+        expand([
+                "version": project.version,
+                "mod_id": mod_id,
+                "mod_name": mod_name,
+                "mod_author": mod_author,
+                "description": mod_description,
+                "license": license,
+                "issues": issues,
+                "minecraft_version": minecraft_version,
+                "fabric_loader_version": fabric_loader_version,
+                "forgeconfigapiport_version": forgeconfigapiport_version,
+                "java_version": java_version,
+                "sable_version": sable_version
+        ])
+    }
+}
+
+loom {
+    runs {
+        client {
+            client()
+            setConfigName("Fabric Client")
+            ideConfigGenerated(true)
+            runDir("runs/client")
+        }
+        server {
+            server()
+            setConfigName("Fabric Server")
+            ideConfigGenerated(true)
+            runDir("runs/server")
+        }
+    }
+}

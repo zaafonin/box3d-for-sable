@@ -1,0 +1,79 @@
+plugins {
+    id 'java-library'
+    id 'net.neoforged.moddev'
+}
+
+base {
+    archivesName = "${mod_id}-neoforge-${minecraft_version}"
+}
+
+sourceSets.main.java.srcDir project(":common").file("src/main/java")
+sourceSets.main.resources.srcDir project(":common").file("src/main/resources")
+
+neoForge {
+    version = neoforge_version
+    parchment {
+        minecraftVersion = parchment_minecraft
+        mappingsVersion = parchment_version
+    }
+    runs {
+        configureEach {
+            ideName = "NeoForge ${it.name.capitalize()} (${project.path})"
+        }
+        client {
+            client()
+            gameDirectory = project.file("runs/client")
+        }
+        server {
+            server()
+            gameDirectory = project.file("runs/server")
+        }
+    }
+    mods {
+        "${mod_id}" {
+            sourceSet sourceSets.main
+        }
+    }
+}
+
+dependencies {
+    compileOnly("dev.ryanhcode.sable:sable-neoforge-${minecraft_version}:${sable_version}") {
+        transitive = false
+    }
+    compileOnly("dev.ryanhcode.sable-companion:sable-companion-common-${minecraft_version}:${sable_companion_version}") {
+        transitive = false
+    }
+}
+
+tasks.named("processResources") {
+    dependsOn project(":common").tasks.named("copyBox3dNative")
+    from(project(":common").layout.buildDirectory.dir("generated/resources/box3dNatives"))
+    inputs.properties([
+            "version": project.version,
+            "mod_id": mod_id,
+            "mod_name": mod_name,
+            "mod_author": mod_author,
+            "description": mod_description,
+            "license": license,
+            "issues": issues,
+            "minecraft_version_range": minecraft_version_range,
+            "neoforge_loader_version_range": neoforge_loader_version_range,
+            "neoforge_version": neoforge_version,
+            "sable_version": sable_version
+    ])
+    filesMatching(["META-INF/neoforge.mods.toml", "*.mixins.json"]) {
+        expand([
+                "version": project.version,
+                "mod_id": mod_id,
+                "mod_name": mod_name,
+                "mod_author": mod_author,
+                "description": mod_description,
+                "license": license,
+                "issues": issues,
+                "minecraft_version_range": minecraft_version_range,
+                "neoforge_loader_version_range": neoforge_loader_version_range,
+                "neoforge_version": neoforge_version,
+                "sable_version": sable_version
+        ])
+    }
+}

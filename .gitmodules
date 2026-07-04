@@ -1,0 +1,3 @@
+[submodule "common/src/main/native/box3d"]
+	path = common/src/main/native/box3d
+	url = https://github.com/erincatto/box3d.git

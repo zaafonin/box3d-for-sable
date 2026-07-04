@@ -1,0 +1,13 @@
+.gradle/
+build/
+out/
+runs/
+*.iml
+.idea/
+
+common/build/
+fabric/build/
+neoforge/build/
+
+*.log
+hs_err_pid*
