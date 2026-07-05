@@ -17,12 +17,22 @@ neoForge {
 
 def generatedNativesRoot = project.layout.buildDirectory.dir("generated/resources/box3dNatives")
 def nativesDir = generatedNativesRoot.map { it.dir("natives/sable_box3d") }
+def nativeArchiveName = "sable_box3d_binaries.zip"
+def stagedNativesDir = project.layout.buildDirectory.dir("box3dNatives/staged")
 def nativeSourceDir = file("src/main/native")
 def configuredBox3dSourceDir = findProperty("box3dSourceDir") ?: System.getenv("BOX3D_SOURCE_DIR")
 def bundledBox3dSourceDir = file("src/main/native/box3d")
 def box3dSourceDir = configuredBox3dSourceDir != null ? file(configuredBox3dSourceDir) : bundledBox3dSourceDir
+def configuredBox3dNativesDir = findProperty("box3dNativesDir") ?: System.getenv("BOX3D_NATIVES_DIR")
+def importedNativesDir = configuredBox3dNativesDir != null && !configuredBox3dNativesDir.toString().isBlank() ? rootProject.file(configuredBox3dNativesDir) : null
+def useImportedNatives = importedNativesDir != null
+def requiredNativeNames = (findProperty("box3dRequiredNatives") ?: System.getenv("BOX3D_REQUIRED_NATIVES") ?: "")
+        .toString()
+        .split(",")
+        .collect { it.trim() }
+        .findAll { !it.isEmpty() }
 def detectedArch = System.getProperty("os.arch")
-def hostArch = detectedArch == "arm" || detectedArch.startsWith("aarch64") ? "aarch64" : "x86_64"
+def hostArch = detectedArch == "arm" || detectedArch == "arm64" || detectedArch.startsWith("aarch64") ? "aarch64" : "x86_64"
 def osName = System.getProperty("os.name").toLowerCase()
 def hostOsName = osName.contains("win") ? "windows" : (osName.contains("mac") || osName.contains("darwin") ? "macos" : "linux")
 def linuxGlibcCeiling = (findProperty("box3dMaxGlibc") ?: System.getenv("BOX3D_MAX_GLIBC") ?: "2.42").toString()
@@ -162,26 +172,104 @@ tasks.register("verifyBox3dNativeAbi") {
     }
 }
 
-tasks.register("copyBox3dNative", Copy) {
+tasks.register("copyHostBox3dNative", Copy) {
     group = "box3d"
-    description = "Copies the host Box3D JNI native into resources."
+    description = "Copies the host Box3D JNI native into the native staging directory."
     dependsOn verifyBox3dNativeAbi
 
-    into nativesDir
+    into stagedNativesDir
     from(builtLibraryForHost) {
         rename { nativeNameForHost }
     }
+
+    doFirst {
+        delete(stagedNativesDir)
+    }
+}
+
+tasks.register("copyImportedBox3dNatives", Copy) {
+    group = "box3d"
+    description = "Copies prebuilt Box3D JNI natives into the native staging directory."
+    onlyIf { useImportedNatives }
+
+    into stagedNativesDir
+    from({ importedNativesDir }) {
+        include "**/sable_box3d_*_linux.so"
+        include "**/sable_box3d_*_windows.dll"
+        include "**/sable_box3d_*_macos.dylib"
+        eachFile { details ->
+            details.path = details.name
+        }
+        includeEmptyDirs = false
+    }
+
+    doFirst {
+        if (!importedNativesDir.exists()) {
+            throw new GradleException("Configured Box3D natives directory does not exist: ${importedNativesDir}")
+        }
+        delete(stagedNativesDir)
+    }
+}
+
+tasks.register("stageBox3dNatives") {
+    group = "box3d"
+    description = "Stages either imported natives or the current host native for packaging."
+    dependsOn useImportedNatives ? copyImportedBox3dNatives : copyHostBox3dNative
+}
+
+tasks.register("packBox3dNatives", Zip) {
+    group = "box3d"
+    description = "Packs staged Box3D JNI natives into a single resource archive."
+    dependsOn stageBox3dNatives
+
+    archiveFileName.set(nativeArchiveName)
+    destinationDirectory.set(nativesDir)
+    duplicatesStrategy = DuplicatesStrategy.FAIL
+    inputs.property("requiredNativeNames", requiredNativeNames.join(","))
+    inputs.property("useImportedNatives", useImportedNatives.toString())
+
+    from(stagedNativesDir) {
+        include "sable_box3d_*_linux.so"
+        include "sable_box3d_*_windows.dll"
+        include "sable_box3d_*_macos.dylib"
+    }
+
+    doFirst {
+        delete(nativesDir)
+        nativesDir.get().asFile.mkdirs()
+
+        def stagedDir = stagedNativesDir.get().asFile
+        def stagedFiles = stagedDir.exists() ? stagedDir.listFiles({ file -> file.isFile() } as FileFilter).collect { it.name }.sort() : []
+        if (stagedFiles.isEmpty()) {
+            throw new GradleException("No Box3D native binaries were staged in ${stagedDir}")
+        }
+
+        def missing = requiredNativeNames.findAll { !stagedFiles.contains(it) }
+        if (!missing.isEmpty()) {
+            throw new GradleException("Missing required Box3D native binaries: ${missing}. Staged binaries: ${stagedFiles}")
+        }
+    }
+}
+
+tasks.register("copyBox3dNative") {
+    group = "box3d"
+    description = "Compatibility alias for packing Box3D JNI native resources."
+    dependsOn packBox3dNatives
 }
 
 tasks.register("buildBox3dNatives") {
     group = "build"
-    description = "Builds and copies the host Box3D native library."
-    dependsOn copyBox3dNative
+    description = "Builds and packs the host Box3D native library."
+    dependsOn packBox3dNatives
 }
 
 tasks.named("processResources") {
-    dependsOn copyBox3dNative
-    from(generatedNativesRoot)
+    dependsOn packBox3dNatives
+    from(generatedNativesRoot) {
+        exclude "natives/sable_box3d/sable_box3d_*_linux.so"
+        exclude "natives/sable_box3d/sable_box3d_*_windows.dll"
+        exclude "natives/sable_box3d/sable_box3d_*_macos.dylib"
+    }
     inputs.property("version", project.version)
     inputs.property("mod_id", mod_id)
     filesMatching(["*.mixins.json"]) {

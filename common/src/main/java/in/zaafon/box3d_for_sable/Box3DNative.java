@@ -24,6 +24,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 
 /**
  * Java side of the Box3D for Sable JNI bridge.
@@ -31,6 +33,7 @@ import java.nio.file.StandardCopyOption;
 @ApiStatus.Internal
 public final class Box3DNative {
     private static final Path NATIVE_DIR = resolveNativeDir();
+    private static final String LIB_ZIP_NAME = "sable_box3d_binaries.zip";
     private static final String LIB_NAME = "sable_box3d";
 
     public static final String NATIVE_NAME = getNativeName();
@@ -88,15 +91,37 @@ public final class Box3DNative {
     }
 
     private static void loadLibrary() {
-        try (final InputStream direct = Box3DNative.class.getResourceAsStream("/natives/" + LIB_NAME + "/" + NATIVE_NAME)) {
-            if (direct != null) {
-                loadFromStream(direct, NATIVE_NAME);
-                return;
+        try {
+            try (final InputStream archive = Box3DNative.class.getResourceAsStream("/natives/" + LIB_NAME + "/" + LIB_ZIP_NAME)) {
+                if (archive != null) {
+                    loadFromArchive(archive);
+                    return;
+                }
             }
-            throw new FileNotFoundException(NATIVE_NAME);
+
+            try (final InputStream direct = Box3DNative.class.getResourceAsStream("/natives/" + LIB_NAME + "/" + NATIVE_NAME)) {
+                if (direct == null) {
+                    throw new FileNotFoundException(LIB_ZIP_NAME + " or " + NATIVE_NAME);
+                }
+                loadFromStream(direct, NATIVE_NAME);
+            }
         } catch (final Throwable t) {
             failLoad(t);
         }
+    }
+
+    private static void loadFromArchive(final InputStream archive) throws java.io.IOException {
+        try (final ZipInputStream zip = new ZipInputStream(archive)) {
+            ZipEntry entry;
+            while ((entry = zip.getNextEntry()) != null) {
+                if (entry.getName().equals(NATIVE_NAME)) {
+                    loadFromStream(zip, NATIVE_NAME);
+                    return;
+                }
+            }
+        }
+
+        throw new FileNotFoundException(NATIVE_NAME + " in " + LIB_ZIP_NAME);
     }
 
     private static void loadFromStream(final InputStream inputStream, final String fileName) throws java.io.IOException {

@@ -9,8 +9,8 @@ permissions:
   contents: read
 
 jobs:
-  build:
-    name: ${{ matrix.name }}
+  native:
+    name: Native ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -19,15 +19,19 @@ jobs:
           - name: Linux x86_64
             os: ubuntu-24.04
             artifact: linux-x86_64
-            gradle: ./gradlew --no-daemon fabric:build neoforge:build
+            gradle: ./gradlew --no-daemon common:copyHostBox3dNative
+          - name: Linux aarch64
+            os: ubuntu-24.04-arm
+            artifact: linux-aarch64
+            gradle: ./gradlew --no-daemon common:copyHostBox3dNative
           - name: Windows x86_64
             os: windows-2022
             artifact: windows-x86_64
-            gradle: .\gradlew.bat --no-daemon fabric:build neoforge:build
+            gradle: .\gradlew.bat --no-daemon common:copyHostBox3dNative
           - name: macOS aarch64
             os: macos-15
             artifact: macos-aarch64
-            gradle: ./gradlew --no-daemon fabric:build neoforge:build
+            gradle: ./gradlew --no-daemon common:copyHostBox3dNative
 
     steps:
       - name: Checkout
@@ -44,15 +48,55 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Build
+      - name: Build native
         run: ${{ matrix.gradle }}
 
-      - name: Upload jars and native
+      - name: Upload native
         uses: actions/upload-artifact@v4
         with:
-          name: box3d-for-sable-${{ matrix.artifact }}
+          name: box3d-native-${{ matrix.artifact }}
+          if-no-files-found: error
+          path: common/build/box3dNatives/staged/*
+
+  build:
+    name: Loader jars
+    runs-on: ubuntu-24.04
+    needs: native
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Download natives
+        uses: actions/download-artifact@v4
+        with:
+          pattern: box3d-native-*
+          merge-multiple: true
+          path: common/build/box3dNatives/imported
+
+      - name: Build jars
+        run: >
+          ./gradlew --no-daemon fabric:build neoforge:build
+          -Pbox3dNativesDir=common/build/box3dNatives/imported
+          -Pbox3dRequiredNatives=sable_box3d_x86_64_linux.so,sable_box3d_aarch64_linux.so,sable_box3d_x86_64_windows.dll,sable_box3d_aarch64_macos.dylib
+
+      - name: Upload jars
+        uses: actions/upload-artifact@v4
+        with:
+          name: box3d-for-sable-jars
           if-no-files-found: error
           path: |
             fabric/build/libs/*.jar
             neoforge/build/libs/*.jar
-            common/build/generated/resources/box3dNatives/natives/sable_box3d/*
+            common/build/generated/resources/box3dNatives/natives/sable_box3d/sable_box3d_binaries.zip

@@ -21,10 +21,10 @@ git submodule update --init --recursive
 ./gradlew fabric:build neoforge:build
 ```
 
-The build compiles the JNI native for the current host and packages it under:
+Local builds compile the JNI native for the current host and package it into:
 
 ```text
-natives/sable_box3d/sable_box3d_<arch>_<os>.<ext>
+natives/sable_box3d/sable_box3d_binaries.zip
 ```
 
 Build just the native:
@@ -46,6 +46,18 @@ local distributions may need this override for local testing:
 ```bash
 ./gradlew common:buildBox3dNatives -Pbox3dAllowNewerGlibc=true
 ```
+
+GitHub Actions builds natives on each supported runner, then assembles the loader
+jars in a final job using:
+
+```bash
+./gradlew fabric:build neoforge:build \
+  -Pbox3dNativesDir=common/build/box3dNatives/imported \
+  -Pbox3dRequiredNatives=sable_box3d_x86_64_linux.so,sable_box3d_aarch64_linux.so,sable_box3d_x86_64_windows.dll,sable_box3d_aarch64_macos.dylib
+```
+
+Those CI jars contain the Linux x86_64, Linux aarch64, Windows x86_64, and
+macOS aarch64 natives in the same packed resource archive.
 
 ## Configuration
 

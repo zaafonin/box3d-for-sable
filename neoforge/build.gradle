@@ -46,8 +46,12 @@ dependencies {
 }
 
 tasks.named("processResources") {
-    dependsOn project(":common").tasks.named("copyBox3dNative")
-    from(project(":common").layout.buildDirectory.dir("generated/resources/box3dNatives"))
+    dependsOn project(":common").tasks.named("packBox3dNatives")
+    from(project(":common").layout.buildDirectory.dir("generated/resources/box3dNatives")) {
+        exclude "natives/sable_box3d/sable_box3d_*_linux.so"
+        exclude "natives/sable_box3d/sable_box3d_*_windows.dll"
+        exclude "natives/sable_box3d/sable_box3d_*_macos.dylib"
+    }
     inputs.properties([
             "version": project.version,
             "mod_id": mod_id,
