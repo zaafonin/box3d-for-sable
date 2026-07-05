@@ -24,9 +24,9 @@ jobs:
             os: windows-2022
             artifact: windows-x86_64
             gradle: .\gradlew.bat --no-daemon fabric:build neoforge:build
-          - name: macOS x86_64
-            os: macos-13
-            artifact: macos-x86_64
+          - name: macOS aarch64
+            os: macos-15
+            artifact: macos-aarch64
             gradle: ./gradlew --no-daemon fabric:build neoforge:build
 
     steps:

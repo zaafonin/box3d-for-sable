@@ -45,6 +45,10 @@ def normalizeCommand = { List command ->
     command.collect { it.toString() }
 }
 
+def cmakePath = { Object path ->
+    file(path).absolutePath.replace('\\', '/')
+}
+
 def runProcess = { List command ->
     def normalized = normalizeCommand(command)
     def process = new ProcessBuilder(normalized)
@@ -92,18 +96,18 @@ tasks.register("configureBox3dNative", Exec) {
         configureCommand.addAll(["-G", cmakeGenerator.toString()])
     }
     configureCommand.addAll([
-            "-S", nativeSourceDir.absolutePath,
-            "-B", cmakeBuildDir.absolutePath,
+            "-S", cmakePath(nativeSourceDir),
+            "-B", cmakePath(cmakeBuildDir),
             "-DCMAKE_BUILD_TYPE=RelWithDebInfo",
-            "-DBOX3D_SOURCE_DIR=${box3dSourceDir.absolutePath}",
-            "-DJAVA_HOME=${javaHomeForCmake.absolutePath}",
+            "-DBOX3D_SOURCE_DIR=${cmakePath(box3dSourceDir)}",
+            "-DJAVA_HOME=${cmakePath(javaHomeForCmake)}",
             "-DBOX3D_STATIC_CXX_RUNTIME=${staticCxxRuntime ? "ON" : "OFF"}",
-            "-DCMAKE_ARCHIVE_OUTPUT_DIRECTORY=${cmakeOutDir.absolutePath}",
-            "-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=${cmakeOutDir.absolutePath}",
-            "-DCMAKE_RUNTIME_OUTPUT_DIRECTORY=${cmakeOutDir.absolutePath}",
-            "-DCMAKE_ARCHIVE_OUTPUT_DIRECTORY_RELWITHDEBINFO=${cmakeOutDir.absolutePath}",
-            "-DCMAKE_LIBRARY_OUTPUT_DIRECTORY_RELWITHDEBINFO=${cmakeOutDir.absolutePath}",
-            "-DCMAKE_RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO=${cmakeOutDir.absolutePath}"
+            "-DCMAKE_ARCHIVE_OUTPUT_DIRECTORY=${cmakePath(cmakeOutDir)}",
+            "-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=${cmakePath(cmakeOutDir)}",
+            "-DCMAKE_RUNTIME_OUTPUT_DIRECTORY=${cmakePath(cmakeOutDir)}",
+            "-DCMAKE_ARCHIVE_OUTPUT_DIRECTORY_RELWITHDEBINFO=${cmakePath(cmakeOutDir)}",
+            "-DCMAKE_LIBRARY_OUTPUT_DIRECTORY_RELWITHDEBINFO=${cmakePath(cmakeOutDir)}",
+            "-DCMAKE_RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO=${cmakePath(cmakeOutDir)}"
     ])
 
     commandLine normalizeCommand(configureCommand)
@@ -118,7 +122,7 @@ tasks.register("buildBox3dNative", Exec) {
     inputs.dir(box3dSourceDir)
     outputs.file(builtLibraryForHost)
 
-    commandLine normalizeCommand(["cmake", "--build", cmakeBuildDir.absolutePath, "--config", "RelWithDebInfo", "--target", "sable_box3d"])
+    commandLine normalizeCommand(["cmake", "--build", cmakePath(cmakeBuildDir), "--config", "RelWithDebInfo", "--target", "sable_box3d"])
 }
 
 tasks.register("verifyBox3dNativeAbi") {
